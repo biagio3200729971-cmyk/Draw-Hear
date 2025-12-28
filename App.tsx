@@ -374,6 +374,21 @@ const App: React.FC = () => {
         className="absolute inset-0"
         style={{ touchAction: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
       />
+{/* Stripe support link */}
+<a
+href="https://buy.stripe.com/test_cNi3cuadbetvERfde50kE00"
+  target="_blank"
+  rel="noopener noreferrer"
+  className="
+  fixed bottom-6 right-6 z-20
+  text-[6px] tracking-[0.6em] uppercase font-bold
+  text-white/10 hover:text-white/40
+  transition-all duration-700
+  pointer-events-auto
+"
+>
+  Support · €5
+</a>
 
       {/* Ghost UI */}
       <div className="absolute bottom-10 inset-x-0 flex justify-center gap-24 pointer-events-none opacity-5 hover:opacity-100 transition-opacity duration-3000">

@@ -34,20 +34,28 @@ const App: React.FC = () => {
   const MIN_SAMPLE_DIST = 4;      
   const SMOOTHING_FACTOR = 0.35;   
 
-  // Initialize Canvas
+  // Initialize Canvas with DPR optimization
   const initCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    canvas.width = window.innerWidth * window.devicePixelRatio;
-    canvas.height = window.innerHeight * window.devicePixelRatio;
+    
+    // Limit DPR to 2 for mobile performance
+    const dpr = Math.min(window.devicePixelRatio, 2);
+    
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
     const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    if (ctx) ctx.scale(dpr, dpr);
   }, []);
 
   useEffect(() => {
     initCanvas();
     window.addEventListener('resize', initCanvas);
-    return () => window.removeEventListener('resize', initCanvas);
+    window.addEventListener('orientationchange', initCanvas);
+    return () => {
+      window.removeEventListener('resize', initCanvas);
+      window.removeEventListener('orientationchange', initCanvas);
+    };
   }, [initCanvas]);
 
   // Global Sync Engine: The system is the composer
@@ -153,6 +161,11 @@ const App: React.FC = () => {
   };
 
   const handlePointerDown = async (e: React.PointerEvent) => {
+    // Prevent default touch/scroll behaviors on mobile
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      e.preventDefault();
+    }
+
     // iOS/Android WebAudio unlock: Must call audioContext.resume() on user gesture
     // Only call once to avoid errors
     if (!audioUnlockedRef.current) {
@@ -180,6 +193,11 @@ const App: React.FC = () => {
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    // Prevent default touch behaviors while drawing
+    if (isDrawing && (e.pointerType === 'touch' || e.pointerType === 'pen')) {
+      e.preventDefault();
+    }
+
     pointerRef.current = { x: e.clientX, y: e.clientY };
     // Only draw if isDrawing is true (prevents accidental streaks from mouse-over)
     if (!isDrawing || !startPointRef.current || !lastCapturedPointRef.current) return;
@@ -216,6 +234,11 @@ const App: React.FC = () => {
         // Silently ignore if releasePointerCapture not supported
       }
       pointerCaptureIdRef.current = null;
+    }
+    
+    // Prevent default behavior on touch/pen release
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      e.preventDefault();
     }
     
     if (!isDrawing || !startPointRef.current) return;

@@ -25,7 +25,9 @@ const App: React.FC = () => {
 
   // iOS/Android WebAudio unlock flag: Ensures resume() only called once
   const audioUnlockedRef = useRef<boolean>(false);
-  const pointerCaptureIdRef = useRef<number | null>(null);
+  
+  // SINGLE SOURCE OF TRUTH for drawing state - used for audio logic (NOT React state)
+  const isDrawingRef = useRef<boolean>(false);
 
   // Constants for Intent & Sanitization
   const DOT_DURATION_LIMIT = 180; 
@@ -85,8 +87,9 @@ const App: React.FC = () => {
         // Sort agents by "significance" (recency + intensity)
         setAgents(prev => {
           const sorted = [...prev].sort((a, b) => b.createdAt - a.createdAt);
+          let triggerCount = 0;
           
-          return prev.map(agent => {
+          const result = prev.map(agent => {
             let triggered = false;
             const pan = (agent.center.x / window.innerWidth) * 2 - 1;
             const y = agent.center.y / window.innerHeight;
@@ -100,6 +103,7 @@ const App: React.FC = () => {
               if (agent.role === 'pulse' && tickRef.current === 0) {
                 if (Math.random() > 0.8) {
                   audioEngine.triggerAgent('pulse', y, agent.intensity, { pan, agentId: agent.id });
+                  triggerCount++;
                   triggered = true;
                 }
               }
@@ -109,6 +113,7 @@ const App: React.FC = () => {
                 if (Math.random() > 0.6) {
                   const noteIdx = agent.motifNotes[Math.floor(Math.random() * agent.motifNotes.length)];
                   audioEngine.triggerAgent('motif', y, agent.intensity, { noteIndex: noteIdx, pan, agentId: agent.id });
+                  triggerCount++;
                   triggered = true;
                 }
               }
@@ -116,6 +121,7 @@ const App: React.FC = () => {
               // DRONE (Nature): Constant background
               if (agent.role === 'drone' && tickRef.current === 0) {
                 audioEngine.triggerAgent('drone', y, agent.intensity, { pan, agentId: agent.id });
+                triggerCount++;
                 triggered = true;
               }
 
@@ -123,6 +129,7 @@ const App: React.FC = () => {
               if (agent.role === 'breath' && tickRef.current === 0) {
                 if (Math.random() > 0.7) {
                   audioEngine.triggerAgent('breath', y, agent.intensity, { pan, agentId: agent.id });
+                  triggerCount++;
                   triggered = true;
                 }
               }
@@ -130,6 +137,7 @@ const App: React.FC = () => {
 
             return { ...agent, playPulse: triggered ? 1.0 : agent.playPulse * 0.94 };
           });
+          return result;
         });
       }
       rafId = requestAnimationFrame(loop);
@@ -174,13 +182,8 @@ const App: React.FC = () => {
     return 'drone';
   };
 
-  // Shared draw logic for all input types
-  const handleInputStart = async (x: number, y: number) => {
-    if (!audioUnlockedRef.current) {
-      await audioEngine.ensureContext();
-      audioUnlockedRef.current = true;
-    }
-    
+  // Visual-only logic (NOT audio-related)
+  const handleInputStart = (x: number, y: number) => {
     setIsDrawing(true);
     inputStartTimeRef.current = performance.now();
     startPointRef.current = { x, y };
@@ -271,36 +274,102 @@ const App: React.FC = () => {
     hasExceededThresholdRef.current = false;
   };
 
-  // Pointer Events (mouse + pointer)
   // Pointer Events (mouse + pointer) - convert to canvas coordinates
-  const handlePointerDown = async (e: React.PointerEvent) => {
-    if (e.pointerType !== 'mouse') {
-      e.preventDefault();
-    }
+  const handlePointerDown = (e: React.PointerEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    await handleInputStart(e.clientX - rect.left, e.clientY - rect.top);
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Set pointer capture to prevent event loss
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch (err) {
+      // Ignore if not supported
+    }
+
+    // SINGLE SOURCE OF TRUTH: Set drawing ref
+    isDrawingRef.current = true;
+
+    // IMMEDIATE AUDIO - synchronous in event call stack (BEFORE React state update)
+    audioEngine.unlockIfNeeded();
+    if (!audioUnlockedRef.current) {
+      audioUnlockedRef.current = true;
+    }
+    audioEngine.immediateAttack(x, y);
+
+    // THEN update visual state
+    handleInputStart(x, y);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (isDrawing && e.pointerType !== 'mouse') {
-      e.preventDefault();
-    }
+    // Exit if not drawing
+    if (!isDrawingRef.current) return;
+
+    // Unconditional preventDefault for consistency
+    e.preventDefault();
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    handleInputMove(e.clientX - rect.left, e.clientY - rect.top);
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // IMMEDIATE AUDIO modulation - synchronous in event call stack
+    audioEngine.immediateModulation(x, y);
+
+    // Then update drawing state
+    handleInputMove(x, y);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    if (e.pointerType !== 'mouse') {
-      e.preventDefault();
-    }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    handleInputEnd(e.clientX - rect.left, e.clientY - rect.top);
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Release pointer capture
+    try {
+      canvas.releasePointerCapture(e.pointerId);
+    } catch (err) {
+      // Ignore if not supported
+    }
+
+    // SINGLE SOURCE OF TRUTH: Set drawing ref to false
+    isDrawingRef.current = false;
+
+    // IMMEDIATE AUDIO release - synchronous in event call stack
+    audioEngine.immediateRelease();
+
+    // Then update drawing state
+    handleInputEnd(x, y);
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Release pointer capture
+    try {
+      canvas.releasePointerCapture(e.pointerId);
+    } catch (err) {
+      // Ignore if not supported
+    }
+
+    // SINGLE SOURCE OF TRUTH: Set drawing ref to false
+    isDrawingRef.current = false;
+
+    // IMMEDIATE AUDIO release - synchronous in event call stack
+    audioEngine.immediateRelease();
+
+    // Reset state
+    setIsDrawing(false);
+    activeStrokeRef.current = [];
+    startPointRef.current = null;
+    lastCapturedPointRef.current = null;
+    hasExceededThresholdRef.current = false;
   };
 
   useEffect(() => {
@@ -399,19 +468,23 @@ const App: React.FC = () => {
       };
     };
 
-    const onTouchStart = async (e: TouchEvent) => {
+    const onTouchStart = (e: TouchEvent) => {
       e.preventDefault();
       if (e.touches.length === 0) return;
       const touch = e.touches[0];
       const coords = getCanvasCoords(touch.clientX, touch.clientY);
       
-      // Unlock audio on first touch
+      // SINGLE SOURCE OF TRUTH: Set drawing ref
+      isDrawingRef.current = true;
+
+      // IMMEDIATE AUDIO - synchronous in event call stack
+      audioEngine.unlockIfNeeded();
       if (!audioUnlockedRef.current) {
-        await audioEngine.ensureContext();
         audioUnlockedRef.current = true;
       }
-      
-      // Start drawing
+      audioEngine.immediateAttack(coords.x, coords.y);
+
+      // Then update drawing state
       setIsDrawing(true);
       inputStartTimeRef.current = performance.now();
       startPointRef.current = { x: coords.x, y: coords.y };
@@ -422,10 +495,17 @@ const App: React.FC = () => {
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      // Exit if not drawing
+      if (!isDrawingRef.current) return;
+
+      // Unconditional preventDefault
       e.preventDefault();
-      if (e.touches.length === 0 || !isDrawing) return;
+      if (e.touches.length === 0) return;
       const touch = e.touches[0];
       const coords = getCanvasCoords(touch.clientX, touch.clientY);
+      
+      // IMMEDIATE AUDIO modulation - synchronous in event call stack
+      audioEngine.immediateModulation(coords.x, coords.y);
       
       pointerRef.current = { x: coords.x, y: coords.y };
       if (!startPointRef.current || !lastCapturedPointRef.current) return;
@@ -453,6 +533,13 @@ const App: React.FC = () => {
 
     const onTouchEnd = (e: TouchEvent) => {
       e.preventDefault();
+
+      // SINGLE SOURCE OF TRUTH: Set drawing ref to false
+      isDrawingRef.current = false;
+
+      // IMMEDIATE AUDIO release - synchronous in event call stack
+      audioEngine.immediateRelease();
+
       if (!isDrawing || !startPointRef.current) {
         setIsDrawing(false);
         return;
@@ -535,16 +622,7 @@ const App: React.FC = () => {
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerCancel={(e) => { 
-        setIsDrawing(false); 
-        startPointRef.current = null;
-        if (pointerCaptureIdRef.current === e.pointerId && canvasRef.current) {
-          try {
-            canvasRef.current.releasePointerCapture(e.pointerId);
-          } catch (err) {}
-          pointerCaptureIdRef.current = null;
-        }
-      }}
+      onPointerCancel={handlePointerCancel}
     >
       <canvas 
         ref={canvasRef} 

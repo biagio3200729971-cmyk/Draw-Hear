@@ -160,51 +160,27 @@ const App: React.FC = () => {
     return 'drone';
   };
 
-  const handlePointerDown = async (e: React.PointerEvent) => {
-    // Prevent default touch/scroll behaviors on mobile
-    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
-      e.preventDefault();
-    }
-
-    // iOS/Android WebAudio unlock: Must call audioContext.resume() on user gesture
-    // Only call once to avoid errors
+  // Shared draw logic for all input types
+  const handleInputStart = async (x: number, y: number) => {
     if (!audioUnlockedRef.current) {
       await audioEngine.ensureContext();
       audioUnlockedRef.current = true;
     }
     
-    // Ensure pointer capture for mobile: Prevents interruption during drawing
-    if (canvasRef.current && (e.pointerType === 'touch' || e.pointerType === 'pen')) {
-      try {
-        canvasRef.current.setPointerCapture(e.pointerId);
-        pointerCaptureIdRef.current = e.pointerId;
-      } catch (err) {
-        // Silently ignore if setPointerCapture not supported
-      }
-    }
-    
     setIsDrawing(true);
     inputStartTimeRef.current = performance.now();
-    startPointRef.current = { x: e.clientX, y: e.clientY };
-    lastCapturedPointRef.current = { x: e.clientX, y: e.clientY };
-    pointerRef.current = { x: e.clientX, y: e.clientY };
+    startPointRef.current = { x, y };
+    lastCapturedPointRef.current = { x, y };
+    pointerRef.current = { x, y };
     activeStrokeRef.current = [];
     hasExceededThresholdRef.current = false;
   };
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    // Prevent default touch behaviors while drawing
-    if (isDrawing && (e.pointerType === 'touch' || e.pointerType === 'pen')) {
-      e.preventDefault();
-    }
-
-    pointerRef.current = { x: e.clientX, y: e.clientY };
-    // Only draw if isDrawing is true (prevents accidental streaks from mouse-over)
+  const handleInputMove = (x: number, y: number) => {
+    pointerRef.current = { x, y };
     if (!isDrawing || !startPointRef.current || !lastCapturedPointRef.current) return;
 
-    const rawX = e.clientX;
-    const rawY = e.clientY;
-    const distFromStart = Math.sqrt(Math.pow(rawX - startPointRef.current.x, 2) + Math.pow(rawY - startPointRef.current.y, 2));
+    const distFromStart = Math.sqrt(Math.pow(x - startPointRef.current.x, 2) + Math.pow(y - startPointRef.current.y, 2));
     const elapsed = performance.now() - inputStartTimeRef.current;
 
     if (!hasExceededThresholdRef.current) {
@@ -215,37 +191,25 @@ const App: React.FC = () => {
       return;
     }
 
-    const distFromLast = Math.sqrt(Math.pow(rawX - lastCapturedPointRef.current.x, 2) + Math.pow(rawY - lastCapturedPointRef.current.y, 2));
+    const distFromLast = Math.sqrt(Math.pow(x - lastCapturedPointRef.current.x, 2) + Math.pow(y - lastCapturedPointRef.current.y, 2));
     if (distFromLast < MIN_SAMPLE_DIST) return;
 
-    const smoothedX = SMOOTHING_FACTOR * rawX + (1 - SMOOTHING_FACTOR) * lastCapturedPointRef.current.x;
-    const smoothedY = SMOOTHING_FACTOR * rawY + (1 - SMOOTHING_FACTOR) * lastCapturedPointRef.current.y;
+    const smoothedX = SMOOTHING_FACTOR * x + (1 - SMOOTHING_FACTOR) * lastCapturedPointRef.current.x;
+    const smoothedY = SMOOTHING_FACTOR * y + (1 - SMOOTHING_FACTOR) * lastCapturedPointRef.current.y;
 
     activeStrokeRef.current.push({ x: smoothedX, y: smoothedY, t: performance.now(), w: 4 });
     lastCapturedPointRef.current = { x: smoothedX, y: smoothedY };
   };
 
-  const handlePointerUp = (e: React.PointerEvent) => {
-    // Release pointer capture if we had captured it
-    if (pointerCaptureIdRef.current === e.pointerId && canvasRef.current) {
-      try {
-        canvasRef.current.releasePointerCapture(e.pointerId);
-      } catch (err) {
-        // Silently ignore if releasePointerCapture not supported
-      }
-      pointerCaptureIdRef.current = null;
+  const handleInputEnd = (x: number, y: number) => {
+    if (!isDrawing || !startPointRef.current) {
+      setIsDrawing(false);
+      return;
     }
-    
-    // Prevent default behavior on touch/pen release
-    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
-      e.preventDefault();
-    }
-    
-    if (!isDrawing || !startPointRef.current) return;
     
     const now = performance.now();
     const elapsed = now - inputStartTimeRef.current;
-    const dist = Math.sqrt(Math.pow(e.clientX - startPointRef.current.x, 2) + Math.pow(e.clientY - startPointRef.current.y, 2));
+    const dist = Math.sqrt(Math.pow(x - startPointRef.current.x, 2) + Math.pow(y - startPointRef.current.y, 2));
 
     let finalRole: AgentRole | null = null;
     let finalPoints: Point[] = [];
@@ -283,7 +247,7 @@ const App: React.FC = () => {
         breathOffset: Math.random() * Math.PI * 2,
         createdAt: Date.now()
       };
-      setAgents(prev => [...prev, newAgent].slice(-30)); // Max 30 agents to maintain visual clarity
+      setAgents(prev => [...prev, newAgent].slice(-30));
     }
 
     setIsDrawing(false);
@@ -291,6 +255,28 @@ const App: React.FC = () => {
     startPointRef.current = null;
     lastCapturedPointRef.current = null;
     hasExceededThresholdRef.current = false;
+  };
+
+  // Pointer Events (mouse + pointer)
+  const handlePointerDown = async (e: React.PointerEvent) => {
+    if (e.pointerType !== 'mouse') {
+      e.preventDefault();
+    }
+    await handleInputStart(e.clientX, e.clientY);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (isDrawing && e.pointerType !== 'mouse') {
+      e.preventDefault();
+    }
+    handleInputMove(e.clientX, e.clientY);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType !== 'mouse') {
+      e.preventDefault();
+    }
+    handleInputEnd(e.clientX, e.clientY);
   };
 
   useEffect(() => {
@@ -374,6 +360,148 @@ const App: React.FC = () => {
     return () => cancelAnimationFrame(rafId);
   }, [agents, isDrawing]);
 
+  // Attach direct touch listeners to canvas (bypasses React event system)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const getCanvasCoords = (clientX: number, clientY: number) => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top,
+      };
+    };
+
+    const onTouchStart = async (e: TouchEvent) => {
+      e.preventDefault();
+      if (e.touches.length === 0) return;
+      const touch = e.touches[0];
+      const coords = getCanvasCoords(touch.clientX, touch.clientY);
+      
+      // Unlock audio on first touch
+      if (!audioUnlockedRef.current) {
+        await audioEngine.ensureContext();
+        audioUnlockedRef.current = true;
+      }
+      
+      // Start drawing
+      setIsDrawing(true);
+      inputStartTimeRef.current = performance.now();
+      startPointRef.current = { x: coords.x, y: coords.y };
+      lastCapturedPointRef.current = { x: coords.x, y: coords.y };
+      pointerRef.current = { x: coords.x, y: coords.y };
+      activeStrokeRef.current = [];
+      hasExceededThresholdRef.current = false;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      if (e.touches.length === 0 || !isDrawing) return;
+      const touch = e.touches[0];
+      const coords = getCanvasCoords(touch.clientX, touch.clientY);
+      
+      pointerRef.current = { x: coords.x, y: coords.y };
+      if (!startPointRef.current || !lastCapturedPointRef.current) return;
+
+      const distFromStart = Math.sqrt(Math.pow(coords.x - startPointRef.current.x, 2) + Math.pow(coords.y - startPointRef.current.y, 2));
+      const elapsed = performance.now() - inputStartTimeRef.current;
+
+      if (!hasExceededThresholdRef.current) {
+        if (distFromStart > DOT_DISTANCE_LIMIT || elapsed > INTENT_BUFFER_TIME) {
+          hasExceededThresholdRef.current = true;
+          activeStrokeRef.current = [{ ...startPointRef.current, t: inputStartTimeRef.current, w: 4 }];
+        }
+        return;
+      }
+
+      const distFromLast = Math.sqrt(Math.pow(coords.x - lastCapturedPointRef.current.x, 2) + Math.pow(coords.y - lastCapturedPointRef.current.y, 2));
+      if (distFromLast < MIN_SAMPLE_DIST) return;
+
+      const smoothedX = SMOOTHING_FACTOR * coords.x + (1 - SMOOTHING_FACTOR) * lastCapturedPointRef.current.x;
+      const smoothedY = SMOOTHING_FACTOR * coords.y + (1 - SMOOTHING_FACTOR) * lastCapturedPointRef.current.y;
+
+      activeStrokeRef.current.push({ x: smoothedX, y: smoothedY, t: performance.now(), w: 4 });
+      lastCapturedPointRef.current = { x: smoothedX, y: smoothedY };
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      if (!isDrawing || !startPointRef.current) {
+        setIsDrawing(false);
+        return;
+      }
+
+      if (e.changedTouches.length === 0) {
+        setIsDrawing(false);
+        return;
+      }
+
+      const touch = e.changedTouches[0];
+      const coords = getCanvasCoords(touch.clientX, touch.clientY);
+
+      const now = performance.now();
+      const elapsed = now - inputStartTimeRef.current;
+      const dist = Math.sqrt(Math.pow(coords.x - startPointRef.current.x, 2) + Math.pow(coords.y - startPointRef.current.y, 2));
+
+      let finalRole: AgentRole | null = null;
+      let finalPoints: Point[] = [];
+
+      if (elapsed < DOT_DURATION_LIMIT && dist < DOT_DISTANCE_LIMIT) {
+        finalRole = 'pulse';
+        finalPoints = [{ x: startPointRef.current.x, y: startPointRef.current.y, t: now, w: 4 }];
+      } else if (hasExceededThresholdRef.current && activeStrokeRef.current.length >= 2) {
+        finalPoints = [...activeStrokeRef.current];
+        const bounds = finalPoints.reduce((acc, p) => ({
+          minX: Math.min(acc.minX, p.x), minY: Math.min(acc.minY, p.y),
+          maxX: Math.max(acc.maxX, p.x), maxY: Math.max(acc.maxY, p.y)
+        }), { minX: finalPoints[0].x, minY: finalPoints[0].y, maxX: finalPoints[0].x, maxY: finalPoints[0].y });
+        finalRole = recognizeGesture(finalPoints, bounds);
+      }
+
+      if (finalRole) {
+        const bounds = finalPoints.reduce((acc, p) => ({
+          minX: Math.min(acc.minX, p.x), minY: Math.min(acc.minY, p.y),
+          maxX: Math.max(acc.maxX, p.x), maxY: Math.max(acc.maxY, p.y)
+        }), { minX: finalPoints[0]?.x || 0, minY: finalPoints[0]?.y || 0, maxX: finalPoints[0]?.x || 0, maxY: finalPoints[0]?.y || 0 });
+
+        const newAgent: Agent = {
+          id: Math.random().toString(36).substr(2, 9),
+          role: finalRole,
+          points: finalPoints,
+          bounds,
+          center: { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 },
+          intensity: 0.2 + Math.random() * 0.4,
+          sequence: Array(16).fill(false),
+          motifNotes: [0, 1, 2, 3, 4].sort(() => Math.random() - 0.5).slice(0, 3),
+          droneFreq: 0,
+          angle: finalPoints.length > 1 ? Math.atan2(finalPoints[finalPoints.length-1].y - finalPoints[0].y, finalPoints[finalPoints.length-1].x - finalPoints[0].x) : 0,
+          playPulse: 0,
+          breathOffset: Math.random() * Math.PI * 2,
+          createdAt: Date.now()
+        };
+        setAgents(prev => [...prev, newAgent].slice(-30));
+      }
+
+      setIsDrawing(false);
+      activeStrokeRef.current = [];
+      startPointRef.current = null;
+      lastCapturedPointRef.current = null;
+      hasExceededThresholdRef.current = false;
+    };
+
+    // Register touch listeners with { passive: false } to allow preventDefault()
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+
+    return () => {
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove', onTouchMove);
+      canvas.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [isDrawing]);
+
   return (
     <div 
       className="relative w-full h-screen bg-[#020202] overflow-hidden cursor-none"
@@ -395,7 +523,13 @@ const App: React.FC = () => {
       <canvas 
         ref={canvasRef} 
         className="absolute inset-0"
-        style={{ touchAction: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+        style={{ 
+          touchAction: 'none',
+          overscrollBehavior: 'none',
+          pointerEvents: 'auto',
+          WebkitUserSelect: 'none', 
+          userSelect: 'none' 
+        }}
       />
 {/* Stripe support link */}
 <a

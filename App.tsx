@@ -416,6 +416,17 @@ href="https://buy.stripe.com/test_cNi3cuadbetvERfde50kE00"
         </button>
       </div>
 
+      {/* Support Button */}
+      <a
+        href="https://buy.stripe.com/test_cNi3cuadbetveRFde50kE00"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-10 right-10 text-[6px] tracking-[0.8em] uppercase font-bold text-white/20 hover:text-white/50 transition-colors duration-300 pointer-events-auto"
+        style={{ zIndex: 40 }}
+      >
+        Support this experience →
+      </a>
+
       {/* Analysis Overlay */}
       {aiAnalysis && (
         <div className="absolute inset-0 bg-black/99 backdrop-blur-3xl z-50 flex items-center justify-center p-16 text-center animate-in fade-in duration-3000">

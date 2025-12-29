@@ -376,7 +376,7 @@ const App: React.FC = () => {
       />
 {/* Stripe support link */}
 <a
-href="https://buy.stripe.com/test_cNi3cuadbetvERfde50kE00"
+href="https://buy.stripe.com/7sY9ASdn89fH8m67Xr2Fa00"
   target="_blank"
   rel="noopener noreferrer"
   className="
@@ -418,7 +418,7 @@ href="https://buy.stripe.com/test_cNi3cuadbetvERfde50kE00"
 
       {/* Support Button */}
       <a
-        href="https://buy.stripe.com/test_cNi3cuadbetveRFde50kE00"
+        href="https://buy.stripe.com/7sY9ASdn89fH8m67Xr2Fa00"
         target="_blank"
         rel="noopener noreferrer"
         className="fixed bottom-10 right-10 text-[6px] tracking-[0.8em] uppercase font-bold text-white/20 hover:text-white/50 transition-colors duration-300 pointer-events-auto"

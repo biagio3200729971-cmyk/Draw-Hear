@@ -34,18 +34,32 @@ const App: React.FC = () => {
   const MIN_SAMPLE_DIST = 4;      
   const SMOOTHING_FACTOR = 0.35;   
 
-  // Initialize Canvas with DPR optimization
+  // Store DPR for coordinate conversion
+  const dprRef = useRef<number>(1);
+
+  // Initialize Canvas with proper DPR scaling
   const initCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    // Limit DPR to 2 for mobile performance
-    const dpr = Math.min(window.devicePixelRatio, 2);
+    // Get CSS dimensions from bounding rect (most accurate)
+    const rect = canvas.getBoundingClientRect();
+    const cssWidth = rect.width || window.innerWidth;
+    const cssHeight = rect.height || window.innerHeight;
     
-    canvas.width = window.innerWidth * dpr;
-    canvas.height = window.innerHeight * dpr;
+    // Get device pixel ratio, capped at 2 for mobile performance
+    const dpr = Math.min(window.devicePixelRatio, 2);
+    dprRef.current = dpr;
+    
+    // Set canvas internal resolution: CSS size * DPR
+    canvas.width = cssWidth * dpr;
+    canvas.height = cssHeight * dpr;
+    
+    // Scale context immediately after setting dimensions
     const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(dpr, dpr);
+    if (ctx) {
+      ctx.scale(dpr, dpr);
+    }
   }, []);
 
   useEffect(() => {
@@ -258,25 +272,35 @@ const App: React.FC = () => {
   };
 
   // Pointer Events (mouse + pointer)
+  // Pointer Events (mouse + pointer) - convert to canvas coordinates
   const handlePointerDown = async (e: React.PointerEvent) => {
     if (e.pointerType !== 'mouse') {
       e.preventDefault();
     }
-    await handleInputStart(e.clientX, e.clientY);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    await handleInputStart(e.clientX - rect.left, e.clientY - rect.top);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (isDrawing && e.pointerType !== 'mouse') {
       e.preventDefault();
     }
-    handleInputMove(e.clientX, e.clientY);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    handleInputMove(e.clientX - rect.left, e.clientY - rect.top);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (e.pointerType !== 'mouse') {
       e.preventDefault();
     }
-    handleInputEnd(e.clientX, e.clientY);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    handleInputEnd(e.clientX - rect.left, e.clientY - rect.top);
   };
 
   useEffect(() => {
@@ -286,7 +310,9 @@ const App: React.FC = () => {
       const ctx = canvas?.getContext('2d');
       if (!ctx || !canvas) return;
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Clear using CSS pixel dimensions (not scaled pixel dimensions)
+      const rect = canvas.getBoundingClientRect();
+      ctx.clearRect(0, 0, rect.width, rect.height);
       const now = performance.now() / 1000;
 
       // Render Agents with persistent Zen styling

@@ -107,43 +107,41 @@
     osc.type = "sine";
     osc.frequency.value = this._yToFreq(y);
 
-    // Gain node with sine/eased attack
+    // Gain node with attack envelope
     const gain = ctx.createGain();
+    gain.gain.cancelScheduledValues(now);
     gain.gain.setValueAtTime(0, now);
-
-    // Sine/ease-in-out attack envelope (250ms)
     const attackTime = 0.25;
     const baseGain = 0.15;
-    const curveSteps = 32;
-    const attackCurve = new Float32Array(curveSteps + 1);
-    for (let i = 0; i <= curveSteps; i++) {
-      const t = i / curveSteps;
-      attackCurve[i] = baseGain * (0.5 - 0.5 * Math.cos(Math.PI * t));
-    }
-    gain.gain.setValueCurveAtTime(attackCurve, now, attackTime);
+    gain.gain.linearRampToValueAtTime(baseGain, now + attackTime);
 
-    // At end of attack, cancel scheduled values and set baseGain
-    const attackEndTime = now + attackTime;
-    gain.gain.cancelScheduledValues(attackEndTime);
-    gain.gain.setValueAtTime(baseGain, attackEndTime);
-
-    // Breathing fluctuation: periodic setValueAtTime (no curve)
-    if (this._breathLFO) {
-      clearInterval(this._breathLFO);
-      this._breathLFO = null;
-    }
+    // Breathing modulation after attack
     const breathFreq = 0.25; // Hz
     const breathDepth = 0.4; // 40% of baseGain
-    this._breathLFO = setInterval(() => {
-      const t = ctx.currentTime;
-      const breath = Math.sin(2 * Math.PI * breathFreq * t);
-      gain.gain.setValueAtTime(baseGain * (1 + breathDepth * breath), t);
-    }, 40);
+    const breathStart = now + attackTime;
+    // At attack end, cancel scheduled values and set baseGain
+    gain.gain.cancelScheduledValues(breathStart);
+    gain.gain.setValueAtTime(baseGain, breathStart);
+    // Use setTargetAtTime for breathing
+    // The target value oscillates between baseGain*(1-breathDepth) and baseGain*(1+breathDepth)
+    // We'll use setTargetAtTime to smoothly approach the next target every half cycle
+    let breathPhase = 0;
+    const breathPeriod = 1 / breathFreq;
+    // Schedule two setTargetAtTime calls per cycle
+    for (let i = 0; i < 8; i++) {
+      const t1 = breathStart + i * breathPeriod;
+      const t2 = t1 + breathPeriod / 2;
+      const target1 = baseGain * (1 + breathDepth);
+      const target2 = baseGain * (1 - breathDepth);
+      gain.gain.setTargetAtTime(target1, t1, breathPeriod / 8);
+      gain.gain.setTargetAtTime(target2, t2, breathPeriod / 8);
+    }
 
     // Low-pass filter with eased opening
     const filter = ctx.createBiquadFilter();
     filter.type = "lowpass";
     filter.frequency.setValueAtTime(400, now);
+    const curveSteps = 32;
     const filterCurve = new Float32Array(curveSteps + 1);
     for (let i = 0; i <= curveSteps; i++) {
       const t = i / curveSteps;

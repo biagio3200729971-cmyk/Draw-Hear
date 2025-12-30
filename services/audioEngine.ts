@@ -28,16 +28,7 @@
   // iOS/Android WebAudio unlock flag: Prevents multiple resume() calls
   private contextResumed: boolean = false;
 
-  // Immediate audio path: Direct response to touch/pointer
-  private immediateOscillator: OscillatorNode | null = null;
-  private immediateEnvelope: GainNode | null = null;
-  private immediatePanner: StereoPannerNode | null = null;
-
-  // --- PART B: PERCEPTUAL BREATH REFINEMENT (AUDIO ENVELOPE ONLY) ---
-  private _osc: OscillatorNode | null = null;
-  private _gain: GainNode | null = null;
-  private _filter: BiquadFilterNode | null = null;
-  private _breathLFO: NodeJS.Timeout | null = null;
+  // ...existing code...
 
   constructor() {}
 
@@ -67,21 +58,7 @@
       delay.connect(this.master);
 
       // Create the continuous oscillator and gain/filter chain for immediate path
-      const osc = this.ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.value = 440;
-      const gain = this.ctx.createGain();
-      gain.gain.value = 0;
-      const lp = this.ctx.createBiquadFilter();
-      lp.type = "lowpass";
-      lp.frequency.value = 4000;
-      osc.connect(lp);
-      lp.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.start();
-      this._osc = osc;
-      this._gain = gain;
-      this._filter = lp;
+      // (immediate audio path removed)
     }
     
     // Synchronous resume - no await
@@ -113,22 +90,17 @@
 
   // Called on pointerdown/touchstart - immediate attack with breathing emergence
   immediateAttack(x: number, y: number) {
-      // intentionally silent
-    }
+    // intentionally silent
   }
 
   // Called on pointermove/touchmove - continuous, responsive modulation
   immediateModulation(x: number, y: number) {
-
-
-      // intentionally silent
-    }
+    // intentionally silent
   }
 
   // Called on pointerup/touchend - gentle release (exhale)
   immediateRelease() {
-      // intentionally silent
-    }
+    // intentionally silent
   }
 
   // ========================

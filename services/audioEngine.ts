@@ -1,6 +1,15 @@
+  // ...existing code...
 import { AgentRole } from '../types';
 
 class AudioEngine {
+  // Map y position to frequency for immediateAttack
+  private _yToFreq(y: number): number {
+    // Use window.innerHeight if available, fallback to 1 to avoid division by zero
+    const h = typeof window !== 'undefined' && window.innerHeight ? window.innerHeight : 1;
+    const yRatio = y / h;
+    // Upper half: 880Hz, lower half: 220Hz
+    return yRatio < 0.5 ? 880 : 220;
+  }
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private reverbBus: GainNode | null = null;

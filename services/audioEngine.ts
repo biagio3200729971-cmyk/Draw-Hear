@@ -65,6 +65,23 @@
       filter.connect(fb);
       fb.connect(delay);
       delay.connect(this.master);
+
+      // Create the continuous oscillator and gain/filter chain for immediate path
+      const osc = this.ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = 440;
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 4000;
+      osc.connect(lp);
+      lp.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      this._osc = osc;
+      this._gain = gain;
+      this._filter = lp;
     }
     
     // Synchronous resume - no await
@@ -97,68 +114,16 @@
   // Called on pointerdown/touchstart - immediate attack with breathing emergence
   immediateAttack(x: number, y: number) {
     this.unlockIfNeeded();
-    if (this._osc) this.immediateRelease();
-
+    if (!this._osc || !this._gain) return;
     const ctx = this.ctx;
     const now = ctx.currentTime;
-
-    // Oscillator setup
-    const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.value = this._yToFreq(y);
-
-    // Gain node with attack envelope
-    const gain = ctx.createGain();
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(0, now);
+    // Only raise gain slowly (breathing emergence), do not create or start a new oscillator
+    this._gain.gain.cancelScheduledValues(now);
     const attackTime = 0.25;
     const baseGain = 0.15;
-    gain.gain.linearRampToValueAtTime(baseGain, now + attackTime);
-
-    // Breathing modulation after attack
-    const breathFreq = 0.25; // Hz
-    const breathDepth = 0.4; // 40% of baseGain
-    const breathStart = now + attackTime;
-    // At attack end, cancel scheduled values and set baseGain
-    gain.gain.cancelScheduledValues(breathStart);
-    gain.gain.setValueAtTime(baseGain, breathStart);
-    // Use setTargetAtTime for breathing
-    // The target value oscillates between baseGain*(1-breathDepth) and baseGain*(1+breathDepth)
-    // We'll use setTargetAtTime to smoothly approach the next target every half cycle
-    let breathPhase = 0;
-    const breathPeriod = 1 / breathFreq;
-    // Schedule two setTargetAtTime calls per cycle
-    for (let i = 0; i < 8; i++) {
-      const t1 = breathStart + i * breathPeriod;
-      const t2 = t1 + breathPeriod / 2;
-      const target1 = baseGain * (1 + breathDepth);
-      const target2 = baseGain * (1 - breathDepth);
-      gain.gain.setTargetAtTime(target1, t1, breathPeriod / 8);
-      gain.gain.setTargetAtTime(target2, t2, breathPeriod / 8);
-    }
-
-    // Low-pass filter with eased opening
-    const filter = ctx.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(400, now);
-    const curveSteps = 32;
-    const filterCurve = new Float32Array(curveSteps + 1);
-    for (let i = 0; i <= curveSteps; i++) {
-      const t = i / curveSteps;
-      filterCurve[i] = 400 + (3600 * (0.5 - 0.5 * Math.cos(Math.PI * t)));
-    }
-    filter.frequency.setValueCurveAtTime(filterCurve, now, attackTime);
-    filter.frequency.setValueAtTime(4000, now + attackTime);
-
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start(now);
-
-    this._osc = osc;
-    this._gain = gain;
-    this._filter = filter;
+    this._gain.gain.linearRampToValueAtTime(baseGain, now + attackTime);
+    // Optionally, you may want to modulate frequency here as well:
+    this._osc.frequency.setTargetAtTime(this._yToFreq(y), now, 0.03);
   }
 
   // Called on pointermove/touchmove - continuous, responsive modulation
@@ -174,25 +139,12 @@
 
   // Called on pointerup/touchend - gentle release (exhale)
   immediateRelease() {
-    if (this._osc && this._gain) {
+    if (this._gain) {
       const ctx = this.ctx;
       const now = ctx.currentTime;
       // Gentle exponential release
       this._gain.gain.cancelScheduledValues(now);
       this._gain.gain.setTargetAtTime(0, now, 0.08);
-      if (this._breathLFO) {
-        clearInterval(this._breathLFO);
-        this._breathLFO = null;
-      }
-      setTimeout(() => {
-        try { this._osc?.stop(); } catch {}
-        this._osc?.disconnect();
-        this._gain?.disconnect();
-        this._filter?.disconnect();
-        this._osc = null;
-        this._gain = null;
-        this._filter = null;
-      }, 420);
     }
   }
 

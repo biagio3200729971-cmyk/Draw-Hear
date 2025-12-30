@@ -114,30 +114,31 @@
     // Sine/ease-in-out attack envelope (250ms)
     const attackTime = 0.25;
     const baseGain = 0.15;
-    // Create a sine/ease-in-out curve for attack
     const curveSteps = 32;
     const attackCurve = new Float32Array(curveSteps + 1);
     for (let i = 0; i <= curveSteps; i++) {
       const t = i / curveSteps;
-      // Ease-in-out-sine
       attackCurve[i] = baseGain * (0.5 - 0.5 * Math.cos(Math.PI * t));
     }
     gain.gain.setValueCurveAtTime(attackCurve, now, attackTime);
 
-    // Schedule breathing fluctuation after attack using AudioParam automation
-    // 0.25Hz = 4s period, 40% depth
-    const breathSteps = 64;
-    const breathDuration = 4.0;
-    const breathDepth = 0.4; // 40% of baseGain
-    const breathCurve = new Float32Array(breathSteps + 1);
-    for (let i = 0; i <= breathSteps; i++) {
-      const t = i / breathSteps;
-      breathCurve[i] = baseGain * (1 + breathDepth * Math.sin(2 * Math.PI * t - Math.PI/2));
+    // At end of attack, cancel scheduled values and set baseGain
+    const attackEndTime = now + attackTime;
+    gain.gain.cancelScheduledValues(attackEndTime);
+    gain.gain.setValueAtTime(baseGain, attackEndTime);
+
+    // Breathing fluctuation: periodic setValueAtTime (no curve)
+    if (this._breathLFO) {
+      clearInterval(this._breathLFO);
+      this._breathLFO = null;
     }
-    // Schedule breathing to start after attack
-    gain.gain.setValueCurveAtTime(breathCurve, now + attackTime, breathDuration);
-    // After breath cycle, hold at baseGain
-    gain.gain.setValueAtTime(baseGain, now + attackTime + breathDuration);
+    const breathFreq = 0.25; // Hz
+    const breathDepth = 0.4; // 40% of baseGain
+    this._breathLFO = setInterval(() => {
+      const t = ctx.currentTime;
+      const breath = Math.sin(2 * Math.PI * breathFreq * t);
+      gain.gain.setValueAtTime(baseGain * (1 + breathDepth * breath), t);
+    }, 40);
 
     // Low-pass filter with eased opening
     const filter = ctx.createBiquadFilter();
@@ -186,6 +187,10 @@
       // Gentle exponential release
       this._gain.gain.cancelScheduledValues(now);
       this._gain.gain.setTargetAtTime(0, now, 0.08);
+      if (this._breathLFO) {
+        clearInterval(this._breathLFO);
+        this._breathLFO = null;
+      }
       setTimeout(() => {
         try { this._osc?.stop(); } catch {}
         this._osc?.disconnect();

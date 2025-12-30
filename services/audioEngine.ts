@@ -113,38 +113,21 @@
 
   // Called on pointerdown/touchstart - immediate attack with breathing emergence
   immediateAttack(x: number, y: number) {
-    this.unlockIfNeeded();
-    if (!this._osc || !this._gain) return;
-    const ctx = this.ctx;
-    const now = ctx.currentTime;
-    // Only raise gain slowly (breathing emergence), do not create or start a new oscillator
-    this._gain.gain.cancelScheduledValues(now);
-    const attackTime = 0.25;
-    const baseGain = 0.15;
-    this._gain.gain.linearRampToValueAtTime(baseGain, now + attackTime);
-    // Optionally, you may want to modulate frequency here as well:
-    this._osc.frequency.setTargetAtTime(this._yToFreq(y), now, 0.03);
+      // intentionally silent
+    }
   }
 
   // Called on pointermove/touchmove - continuous, responsive modulation
   immediateModulation(x: number, y: number) {
-    if (!this.ctx || !this._osc) return;
 
-    const t = this.ctx.currentTime;
-    const yRatio = y / window.innerHeight;
-    const freq = yRatio < 0.5 ? 880 : 220;
 
-    this._osc.frequency.setTargetAtTime(freq, t, 0.03);
+      // intentionally silent
+    }
   }
 
   // Called on pointerup/touchend - gentle release (exhale)
   immediateRelease() {
-    if (this._gain) {
-      const ctx = this.ctx;
-      const now = ctx.currentTime;
-      // Gentle exponential release
-      this._gain.gain.cancelScheduledValues(now);
-      this._gain.gain.setTargetAtTime(0, now, 0.08);
+      // intentionally silent
     }
   }
 

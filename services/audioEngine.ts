@@ -163,18 +163,13 @@
 
   // Called on pointermove/touchmove - continuous, responsive modulation
   immediateModulation(x: number, y: number) {
-    if (!this.ctx || !this.immediateOscillator || !this.immediatePanner) return;
+    if (!this.ctx || !this._osc) return;
 
     const t = this.ctx.currentTime;
     const yRatio = y / window.innerHeight;
-    const pan = (x / window.innerWidth) * 2 - 1;
+    const freq = yRatio < 0.5 ? 880 : 220;
 
-    // Update frequency smoothly (no additional delay, just smooth portamento)
-    const freq = (yRatio < 0.5) ? 880 : 220;
-    this.immediateOscillator.frequency.setTargetAtTime(freq, t, 0.03); // Slightly slower for musicality
-
-    // Update pan smoothly
-    this.immediatePanner.pan.setTargetAtTime(pan, t, 0.02);
+    this._osc.frequency.setTargetAtTime(freq, t, 0.03);
   }
 
   // Called on pointerup/touchend - gentle release (exhale)

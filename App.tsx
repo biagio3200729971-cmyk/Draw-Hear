@@ -617,7 +617,7 @@ const App: React.FC = () => {
 
   return (
     <div 
-      className="relative w-full h-screen bg-[#020202] overflow-hidden cursor-none"
+      className="relative w-full h-screen bg-[#020202] overflow-hidden"
       style={{ touchAction: 'none' }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -635,31 +635,20 @@ const App: React.FC = () => {
           userSelect: 'none' 
         }}
       />
-{/* Stripe support link */}
-<a
-href="https://buy.stripe.com/7sY9ASdn89fH8m67Xr2Fa00"
-  target="_blank"
-  rel="noopener noreferrer"
-  className="
-  fixed bottom-6 right-6 z-20
-  text-[6px] tracking-[0.6em] uppercase font-bold
-  text-white/10 hover:text-white/40
-  transition-all duration-700
-  pointer-events-auto
-"
->
-  Support · €5
-</a>
 
-      {/* Ghost UI */}
-      <div className="absolute bottom-10 inset-x-0 flex justify-center gap-24 pointer-events-none opacity-5 hover:opacity-100 transition-opacity duration-3000">
-        <button 
+
+      {/* Bottom UI: Reset, Listen, Support */}
+      <div className="fixed bottom-6 left-6 flex flex-col gap-3 z-30">
+        <button
           onClick={() => setAgents([])}
-          className="pointer-events-auto text-[6px] tracking-[0.8em] uppercase font-bold text-white/20 hover:text-white transition-colors"
+          className="pointer-events-auto font-bold support-font text-[8px] md:text-[7px] tracking-[0.12em] text-white/75 bg-transparent border-none outline-none cursor-pointer select-none"
+          style={{fontFamily: 'STZhongsong, Songti SC, SimSun, Noto Serif SC, serif'}}
         >
           Reset
         </button>
-        <button 
+      </div>
+      <div className="fixed bottom-6 right-6 flex flex-col gap-3 items-end z-30">
+        <button
           onClick={async () => {
             if (isAnalyzing || agents.length === 0) return;
             setIsAnalyzing(true);
@@ -671,22 +660,21 @@ href="https://buy.stripe.com/7sY9ASdn89fH8m67Xr2Fa00"
             setIsAnalyzing(false);
           }}
           disabled={isAnalyzing}
-          className="pointer-events-auto text-[6px] tracking-[0.8em] uppercase font-bold text-white/20 hover:text-white transition-colors disabled:opacity-5"
+          className="pointer-events-auto font-bold support-font text-[8px] md:text-[7px] tracking-[0.12em] text-white/75 bg-transparent border-none outline-none cursor-pointer select-none disabled:opacity-50"
+          style={{fontFamily: 'STZhongsong, Songti SC, SimSun, Noto Serif SC, serif'}}
         >
           {isAnalyzing ? "..." : "Listen"}
         </button>
+        <a
+          href="https://buy.stripe.com/7sY9ASdn89fH8m67Xr2Fa00"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="pointer-events-auto font-bold support-font text-[8px] md:text-[7px] tracking-[0.12em] text-white/75 bg-transparent border-none outline-none cursor-pointer select-none"
+          style={{fontFamily: 'STZhongsong, Songti SC, SimSun, Noto Serif SC, serif'}}
+        >
+          Support this experience →
+        </a>
       </div>
-
-      {/* Support Button */}
-      <a
-        href="https://buy.stripe.com/7sY9ASdn89fH8m67Xr2Fa00"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="fixed bottom-10 right-10 text-[6px] tracking-[0.8em] uppercase font-bold text-white/20 hover:text-white/50 transition-colors duration-300 pointer-events-auto"
-        style={{ zIndex: 40 }}
-      >
-        Support this experience →
-      </a>
 
       {/* Analysis Overlay */}
       {aiAnalysis && (
@@ -708,6 +696,10 @@ href="https://buy.stripe.com/7sY9ASdn89fH8m67Xr2Fa00"
       )}
 
       <style>{`
+        .support-font {
+          font-family: "STZhongsong", "Songti SC", "SimSun", "Noto Serif SC", serif;
+          letter-spacing: 0.12em;
+        }
         .font-serif { font-family: 'Playfair Display', serif; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .animate-in { animation: fadeIn 5s cubic-bezier(0.4, 0, 0.2, 1); }

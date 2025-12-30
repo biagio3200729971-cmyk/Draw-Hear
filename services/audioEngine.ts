@@ -1,4 +1,3 @@
-
 import { AgentRole } from '../types';
 
 class AudioEngine {
@@ -23,6 +22,12 @@ class AudioEngine {
   private immediateOscillator: OscillatorNode | null = null;
   private immediateEnvelope: GainNode | null = null;
   private immediatePanner: StereoPannerNode | null = null;
+
+  // --- PART B: PERCEPTUAL BREATH REFINEMENT (AUDIO ENVELOPE ONLY) ---
+  private _osc: OscillatorNode | null = null;
+  private _gain: GainNode | null = null;
+  private _filter: BiquadFilterNode | null = null;
+  private _breathLFO: NodeJS.Timeout | null = null;
 
   constructor() {}
 
@@ -76,48 +81,78 @@ class AudioEngine {
   get currentTime() { return this.ctx?.currentTime || 0; }
 
   // ========================
-  // IMMEDIATE AUDIO PATH
+  // IMMEDIATE AUDIO PATH - with intentional breathing envelope
   // ========================
 
-  // Called on pointerdown/touchstart - immediate attack
+  // Called on pointerdown/touchstart - immediate attack with breathing emergence
   immediateAttack(x: number, y: number) {
-    this.ensureContextSync();
-    if (!this.ctx || !this.master) return;
+    this.unlockIfNeeded();
+    if (this._osc) this.immediateRelease();
 
-    // Stop any existing immediate sound
-    this.immediateRelease();
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
 
-    const t = this.ctx.currentTime;
-    const yRatio = y / window.innerHeight;
-    
-    // Create new oscillator for immediate response
-    this.immediateOscillator = this.ctx.createOscillator();
-    this.immediateEnvelope = this.ctx.createGain();
-    this.immediatePanner = this.ctx.createStereoPanner();
+    // Oscillator setup
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = this._yToFreq(y);
 
-    // Set pan based on x position
-    const pan = (x / window.innerWidth) * 2 - 1;
-    this.immediatePanner.pan.setValueAtTime(pan, t);
+    // Gain node with sine/eased attack
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, now);
 
-    // Frequency based on y position
-    const freq = (yRatio < 0.5) ? 880 : 220;
-    this.immediateOscillator.type = 'sine';
-    this.immediateOscillator.frequency.setValueAtTime(freq, t);
+    // Sine/ease-in-out attack envelope (250ms)
+    const attackTime = 0.25;
+    const baseGain = 0.15;
+    // Create a sine/ease-in-out curve for attack
+    const curveSteps = 32;
+    const attackCurve = new Float32Array(curveSteps + 1);
+    for (let i = 0; i <= curveSteps; i++) {
+      const t = i / curveSteps;
+      // Ease-in-out-sine
+      attackCurve[i] = baseGain * (0.5 - 0.5 * Math.cos(Math.PI * t));
+    }
+    gain.gain.setValueCurveAtTime(attackCurve, now, attackTime);
 
-    // Immediate envelope attack
-    this.immediateEnvelope.gain.setValueAtTime(0, t);
-    this.immediateEnvelope.gain.linearRampToValueAtTime(0.2, t + 0.01); // Fast attack
+    // Schedule breathing fluctuation after attack using AudioParam automation
+    // 0.25Hz = 4s period, 40% depth
+    const breathSteps = 64;
+    const breathDuration = 4.0;
+    const breathDepth = 0.4; // 40% of baseGain
+    const breathCurve = new Float32Array(breathSteps + 1);
+    for (let i = 0; i <= breathSteps; i++) {
+      const t = i / breathSteps;
+      breathCurve[i] = baseGain * (1 + breathDepth * Math.sin(2 * Math.PI * t - Math.PI/2));
+    }
+    // Schedule breathing to start after attack
+    gain.gain.setValueCurveAtTime(breathCurve, now + attackTime, breathDuration);
+    // After breath cycle, hold at baseGain
+    gain.gain.setValueAtTime(baseGain, now + attackTime + breathDuration);
 
-    // Connect nodes
-    this.immediateOscillator.connect(this.immediateEnvelope);
-    this.immediateEnvelope.connect(this.immediatePanner);
-    this.immediatePanner.connect(this.master);
+    // Low-pass filter with eased opening
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(400, now);
+    const filterCurve = new Float32Array(curveSteps + 1);
+    for (let i = 0; i <= curveSteps; i++) {
+      const t = i / curveSteps;
+      filterCurve[i] = 400 + (3600 * (0.5 - 0.5 * Math.cos(Math.PI * t)));
+    }
+    filter.frequency.setValueCurveAtTime(filterCurve, now, attackTime);
+    filter.frequency.setValueAtTime(4000, now + attackTime);
 
-    // Start immediately
-    this.immediateOscillator.start(t);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+
+    this._osc = osc;
+    this._gain = gain;
+    this._filter = filter;
   }
 
-  // Called on pointermove/touchmove - modulate frequency
+  // Called on pointermove/touchmove - continuous, responsive modulation
   immediateModulation(x: number, y: number) {
     if (!this.ctx || !this.immediateOscillator || !this.immediatePanner) return;
 
@@ -125,28 +160,32 @@ class AudioEngine {
     const yRatio = y / window.innerHeight;
     const pan = (x / window.innerWidth) * 2 - 1;
 
-    // Update frequency
+    // Update frequency smoothly (no additional delay, just smooth portamento)
     const freq = (yRatio < 0.5) ? 880 : 220;
-    this.immediateOscillator.frequency.setTargetAtTime(freq, t, 0.02); // 20ms smoothing
+    this.immediateOscillator.frequency.setTargetAtTime(freq, t, 0.03); // Slightly slower for musicality
 
-    // Update pan
-    this.immediatePanner.pan.setTargetAtTime(pan, t, 0.01);
+    // Update pan smoothly
+    this.immediatePanner.pan.setTargetAtTime(pan, t, 0.02);
   }
 
-  // Called on pointerup/touchend - immediate release
+  // Called on pointerup/touchend - gentle release (exhale)
   immediateRelease() {
-    if (!this.ctx || !this.immediateOscillator || !this.immediateEnvelope) return;
-
-    const t = this.ctx.currentTime;
-
-    // Fast release
-    this.immediateEnvelope.gain.setTargetAtTime(0, t, 0.05); // 50ms release
-    this.immediateOscillator.stop(t + 0.1);
-
-    // Cleanup
-    this.immediateOscillator = null;
-    this.immediateEnvelope = null;
-    this.immediatePanner = null;
+    if (this._osc && this._gain) {
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      // Gentle exponential release
+      this._gain.gain.cancelScheduledValues(now);
+      this._gain.gain.setTargetAtTime(0, now, 0.08);
+      setTimeout(() => {
+        try { this._osc?.stop(); } catch {}
+        this._osc?.disconnect();
+        this._gain?.disconnect();
+        this._filter?.disconnect();
+        this._osc = null;
+        this._gain = null;
+        this._filter = null;
+      }, 420);
+    }
   }
 
   // ========================

@@ -107,18 +107,33 @@ const App: React.FC = () => {
             height[x][y] += velocity[x][y];
           }
         }
-        // 渲染（高对比灰度，确保可见）
-        // 不再 clearRect 或覆盖
+        // putImageData 批量渲染
+        const imgW = Math.floor(gridW * cellW);
+        const imgH = Math.floor(gridH * cellH);
+        const imageData = ctx.createImageData(imgW, imgH);
+        const data = imageData.data;
         for (let x = 0; x < gridW; x++) {
           for (let y = 0; y < gridH; y++) {
             const h = height[x][y];
-            // 高对比灰度映射 [-1,1]→[0,255]
             let v = Math.max(-1, Math.min(1, h * 8));
             const gray = Math.round((v + 1) * 127.5);
-            ctx.fillStyle = `rgb(${gray},${gray},${gray})`;
-            ctx.fillRect(x * cellW, y * cellH, cellW + 1, cellH + 1);
+            // 填充 cell 区域像素
+            const px0 = Math.floor(x * cellW);
+            const py0 = Math.floor(y * cellH);
+            const px1 = Math.floor((x + 1) * cellW);
+            const py1 = Math.floor((y + 1) * cellH);
+            for (let px = px0; px < px1; px++) {
+              for (let py = py0; py < py1; py++) {
+                const idx = (py * imgW + px) * 4;
+                data[idx] = gray;
+                data[idx + 1] = gray;
+                data[idx + 2] = gray;
+                data[idx + 3] = 255;
+              }
+            }
           }
         }
+        ctx.putImageData(imageData, 0, 0);
         rafId = requestAnimationFrame(renderWater);
       };
       rafId = requestAnimationFrame(renderWater);

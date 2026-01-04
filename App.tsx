@@ -88,6 +88,11 @@ const App: React.FC = () => {
           rafId = requestAnimationFrame(renderWater);
           return;
         }
+        // 保证 canvas 尺寸与窗口同步
+        if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+          canvas.width = window.innerWidth;
+          canvas.height = window.innerHeight;
+        }
         const {height, velocity, gridW, gridH, cellW, cellH} = grid;
         // 物理更新
         for (let x = 1; x < gridW - 1; x++) {
@@ -102,17 +107,16 @@ const App: React.FC = () => {
             height[x][y] += velocity[x][y];
           }
         }
-        // 渲染
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // 渲染（高对比灰度，确保可见）
+        // 不再 clearRect 或覆盖
         for (let x = 0; x < gridW; x++) {
           for (let y = 0; y < gridH; y++) {
             const h = height[x][y];
-            // S 曲线压缩
-            const brightness = Math.tanh(h * visualScale);
-            const px = x * cellW;
-            const py = y * cellH;
-            ctx.fillStyle = `rgb(${220 + 30 * brightness},${220 + 30 * brightness},${230 + 20 * brightness})`;
-            ctx.fillRect(px, py, cellW + 1, cellH + 1);
+            // 高对比灰度映射 [-1,1]→[0,255]
+            let v = Math.max(-1, Math.min(1, h * 8));
+            const gray = Math.round((v + 1) * 127.5);
+            ctx.fillStyle = `rgb(${gray},${gray},${gray})`;
+            ctx.fillRect(x * cellW, y * cellH, cellW + 1, cellH + 1);
           }
         }
         rafId = requestAnimationFrame(renderWater);

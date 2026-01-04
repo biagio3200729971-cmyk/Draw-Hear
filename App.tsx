@@ -5,6 +5,174 @@ import { analyzeDrawing } from './services/geminiService';
 import { TICK_RATE } from './constants';
 
 const App: React.FC = () => {
+    // --- 连续介质水波纹参数与高度场 ---
+    const [tension, setTension] = useState(0.04);
+    const [damping, setDamping] = useState(0.99);
+    const [radius, setRadius] = useState(3);
+    const [response, setResponse] = useState(0.02);
+    const [maxStrength, setMaxStrength] = useState(0.45);
+    const [visualScale, setVisualScale] = useState(1.1);
+
+    // 高度场与速度场
+    const gridRef = useRef<{height: number[][], velocity: number[][], gridW: number, gridH: number, cellW: number, cellH: number}>();
+
+    // 初始化高度场
+    const initHeightField = useCallback(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const gridW = Math.floor(rect.width / 4);
+      const gridH = Math.floor(rect.height / 4);
+      const cellW = rect.width / gridW;
+      const cellH = rect.height / gridH;
+      const height = Array.from({length: gridW}, () => Array(gridH).fill(0));
+      const velocity = Array.from({length: gridW}, () => Array(gridH).fill(0));
+      gridRef.current = {height, velocity, gridW, gridH, cellW, cellH};
+    }, []);
+
+    // 初始化高度场（随画布变化）
+    useEffect(() => {
+      initCanvas();
+      initHeightField();
+      window.addEventListener('resize', initHeightField);
+      window.addEventListener('orientationchange', initHeightField);
+      return () => {
+        window.removeEventListener('resize', initHeightField);
+        window.removeEventListener('orientationchange', initHeightField);
+      };
+    }, [initCanvas, initHeightField]);
+
+    // 注入扰动（Slow Drag）
+    const injectDisturbance = useCallback((x: number, y: number, speed: number) => {
+      const grid = gridRef.current;
+      if (!grid) return;
+      const {height, gridW, gridH, cellW, cellH} = grid;
+      const cx = Math.floor(x / cellW);
+      const cy = Math.floor(y / cellH);
+      const R = radius;
+      const str = maxStrength * (1 - Math.exp(-speed * response));
+      for (let dx = -R; dx <= R; dx++) {
+        for (let dy = -R; dy <= R; dy++) {
+          const gx = cx + dx;
+          const gy = cy + dy;
+          if (gx < 0 || gx >= gridW || gy < 0 || gy >= gridH) continue;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          if (dist > R) continue;
+          // 高斯衰减
+          const falloff = Math.exp(-dist*dist/(R*R));
+          height[gx][gy] += str * falloff;
+        }
+      }
+    }, [radius, maxStrength, response]);
+
+    // 记录上一次 pointer 位置和时间
+    const lastPointer = useRef<{x: number, y: number, t: number} | null>(null);
+
+    // --- 替换 pointerMove 逻辑，注入扰动 ---
+    const handlePointerMove = (e: React.PointerEvent) => {
+      if (!isDrawingRef.current) return;
+      e.preventDefault();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      // 计算速度
+      const now = performance.now();
+      let speed = 0.5;
+      if (lastPointer.current) {
+        const dt = Math.max(1, now - lastPointer.current.t);
+        const dx = x - lastPointer.current.x;
+        const dy = y - lastPointer.current.y;
+        speed = Math.sqrt(dx*dx + dy*dy) / dt;
+        // 沿轨迹插值注入
+        const steps = Math.ceil(Math.sqrt(dx*dx + dy*dy) / 2);
+        for (let i = 1; i <= steps; i++) {
+          const ix = lastPointer.current.x + (dx * i) / steps;
+          const iy = lastPointer.current.y + (dy * i) / steps;
+          injectDisturbance(ix, iy, speed);
+        }
+      } else {
+        injectDisturbance(x, y, speed);
+      }
+      lastPointer.current = {x, y, t: now};
+      pointerRef.current = {x, y};
+      // ...原有 audioEngine.immediateModulation(x, y); ...
+      handleInputMove(x, y);
+    };
+
+    // pointerDown 时重置 lastPointer
+    const handlePointerDown = (e: React.PointerEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      lastPointer.current = {x, y, t: performance.now()};
+      // ...原有逻辑...
+      isDrawingRef.current = true;
+      audioEngine.unlockIfNeeded();
+      if (!audioUnlockedRef.current) audioUnlockedRef.current = true;
+      audioEngine.immediateAttack(x, y);
+      handleInputStart(x, y);
+    };
+
+    // pointerUp 时清空 lastPointer
+    const handlePointerUp = (e: React.PointerEvent) => {
+      lastPointer.current = null;
+      // ...原有逻辑...
+      isDrawingRef.current = false;
+      audioEngine.immediateRelease();
+      handleInputEnd(e.clientX, e.clientY);
+    };
+
+    // --- 连续介质水波纹物理与渲染 ---
+    useEffect(() => {
+      let rafId: number;
+      const renderWater = () => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
+        const grid = gridRef.current;
+        if (!ctx || !canvas || !grid) {
+          rafId = requestAnimationFrame(renderWater);
+          return;
+        }
+        const {height, velocity, gridW, gridH, cellW, cellH} = grid;
+        // 物理更新
+        for (let x = 1; x < gridW - 1; x++) {
+          for (let y = 1; y < gridH - 1; y++) {
+            const laplacian = height[x-1][y] + height[x+1][y] + height[x][y-1] + height[x][y+1] - 4 * height[x][y];
+            velocity[x][y] += laplacian * tension;
+            velocity[x][y] *= damping;
+          }
+        }
+        for (let x = 1; x < gridW - 1; x++) {
+          for (let y = 1; y < gridH - 1; y++) {
+            height[x][y] += velocity[x][y];
+          }
+        }
+        // 渲染
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let x = 0; x < gridW; x++) {
+          for (let y = 0; y < gridH; y++) {
+            const h = height[x][y];
+            // S 曲线压缩
+            const brightness = Math.tanh(h * visualScale);
+            const px = x * cellW;
+            const py = y * cellH;
+            ctx.fillStyle = `rgb(${220 + 30 * brightness},${220 + 30 * brightness},${230 + 20 * brightness})`;
+            ctx.fillRect(px, py, cellW + 1, cellH + 1);
+          }
+        }
+        rafId = requestAnimationFrame(renderWater);
+      };
+      rafId = requestAnimationFrame(renderWater);
+      return () => cancelAnimationFrame(rafId);
+    }, [tension, damping, radius, response, maxStrength, visualScale]);
+
+    // --- 参数调试入口（右上角 slider）---
+    const sliderStyle = { width: 120, margin: '2px 0' };
+    const labelStyle = { fontSize: 11, color: '#fff', marginRight: 6 };
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -636,6 +804,41 @@ const App: React.FC = () => {
         }}
       />
 
+
+      {/* --- 连续介质水波纹参数调试入口 --- */}
+      <div style={{ position: 'fixed', top: 12, right: 12, zIndex: 1000, background: 'rgba(20,20,30,0.92)', borderRadius: 8, padding: 12, boxShadow: '0 2px 8px #0004' }}>
+        <div style={{ color: '#fff', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Water Params</div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={labelStyle}>tension</span>
+          <input type="range" min={0.02} max={0.06} step={0.001} value={tension} onChange={e => setTension(Number(e.target.value))} style={sliderStyle} />
+          <span style={{ color: '#fff', fontSize: 11, width: 36 }}>{tension.toFixed(3)}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={labelStyle}>damping</span>
+          <input type="range" min={0.985} max={0.995} step={0.0005} value={damping} onChange={e => setDamping(Number(e.target.value))} style={sliderStyle} />
+          <span style={{ color: '#fff', fontSize: 11, width: 36 }}>{damping.toFixed(3)}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={labelStyle}>radius</span>
+          <input type="range" min={2} max={4} step={1} value={radius} onChange={e => setRadius(Number(e.target.value))} style={sliderStyle} />
+          <span style={{ color: '#fff', fontSize: 11, width: 36 }}>{radius}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={labelStyle}>response</span>
+          <input type="range" min={0.015} max={0.03} step={0.001} value={response} onChange={e => setResponse(Number(e.target.value))} style={sliderStyle} />
+          <span style={{ color: '#fff', fontSize: 11, width: 36 }}>{response.toFixed(3)}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={labelStyle}>maxStrength</span>
+          <input type="range" min={0.3} max={0.6} step={0.01} value={maxStrength} onChange={e => setMaxStrength(Number(e.target.value))} style={sliderStyle} />
+          <span style={{ color: '#fff', fontSize: 11, width: 36 }}>{maxStrength.toFixed(2)}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={labelStyle}>visualScale</span>
+          <input type="range" min={0.8} max={1.5} step={0.01} value={visualScale} onChange={e => setVisualScale(Number(e.target.value))} style={sliderStyle} />
+          <span style={{ color: '#fff', fontSize: 11, width: 36 }}>{visualScale.toFixed(2)}</span>
+        </div>
+      </div>
 
       {/* Bottom UI: Reset, Listen, Support */}
       <div className="fixed bottom-6 left-6 flex flex-col gap-3 z-30">

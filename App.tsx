@@ -69,62 +69,13 @@ const App: React.FC = () => {
     const lastPointer = useRef<{x: number, y: number, t: number} | null>(null);
 
     // --- 替换 pointerMove 逻辑，注入扰动 ---
-    const handlePointerMove = (e: React.PointerEvent) => {
-      if (!isDrawingRef.current) return;
-      e.preventDefault();
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      // 计算速度
-      const now = performance.now();
-      let speed = 0.5;
-      if (lastPointer.current) {
-        const dt = Math.max(1, now - lastPointer.current.t);
-        const dx = x - lastPointer.current.x;
-        const dy = y - lastPointer.current.y;
-        speed = Math.sqrt(dx*dx + dy*dy) / dt;
-        // 沿轨迹插值注入
-        const steps = Math.ceil(Math.sqrt(dx*dx + dy*dy) / 2);
-        for (let i = 1; i <= steps; i++) {
-          const ix = lastPointer.current.x + (dx * i) / steps;
-          const iy = lastPointer.current.y + (dy * i) / steps;
-          injectDisturbance(ix, iy, speed);
-        }
-      } else {
-        injectDisturbance(x, y, speed);
-      }
-      lastPointer.current = {x, y, t: now};
-      pointerRef.current = {x, y};
-      // ...原有 audioEngine.immediateModulation(x, y); ...
-      handleInputMove(x, y);
-    };
+    // (removed duplicate handlePointerMove)
 
     // pointerDown 时重置 lastPointer
-    const handlePointerDown = (e: React.PointerEvent) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      lastPointer.current = {x, y, t: performance.now()};
-      // ...原有逻辑...
-      isDrawingRef.current = true;
-      audioEngine.unlockIfNeeded();
-      if (!audioUnlockedRef.current) audioUnlockedRef.current = true;
-      audioEngine.immediateAttack(x, y);
-      handleInputStart(x, y);
-    };
+    // (removed duplicate handlePointerDown)
 
     // pointerUp 时清空 lastPointer
-    const handlePointerUp = (e: React.PointerEvent) => {
-      lastPointer.current = null;
-      // ...原有逻辑...
-      isDrawingRef.current = false;
-      audioEngine.immediateRelease();
-      handleInputEnd(e.clientX, e.clientY);
-    };
+    // (removed duplicate handlePointerUp)
 
     // --- 连续介质水波纹物理与渲染 ---
     useEffect(() => {
@@ -441,79 +392,8 @@ const App: React.FC = () => {
     lastCapturedPointRef.current = null;
     hasExceededThresholdRef.current = false;
   };
+  // (removed duplicate handlePointerDown)
 
-  // Pointer Events (mouse + pointer) - convert to canvas coordinates
-  const handlePointerDown = (e: React.PointerEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    // Set pointer capture to prevent event loss
-    try {
-      canvas.setPointerCapture(e.pointerId);
-    } catch (err) {
-      // Ignore if not supported
-    }
-
-    // SINGLE SOURCE OF TRUTH: Set drawing ref
-    isDrawingRef.current = true;
-
-    // IMMEDIATE AUDIO - synchronous in event call stack (BEFORE React state update)
-    audioEngine.unlockIfNeeded();
-    if (!audioUnlockedRef.current) {
-      audioUnlockedRef.current = true;
-    }
-    audioEngine.immediateAttack(x, y);
-
-    // THEN update visual state
-    handleInputStart(x, y);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    // Exit if not drawing
-    if (!isDrawingRef.current) return;
-
-    // Unconditional preventDefault for consistency
-    e.preventDefault();
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    // IMMEDIATE AUDIO modulation - synchronous in event call stack
-    audioEngine.immediateModulation(x, y);
-
-    // Then update drawing state
-    handleInputMove(x, y);
-  };
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    // Release pointer capture
-    try {
-      canvas.releasePointerCapture(e.pointerId);
-    } catch (err) {
-      // Ignore if not supported
-    }
-
-    // SINGLE SOURCE OF TRUTH: Set drawing ref to false
-    isDrawingRef.current = false;
-
-    // IMMEDIATE AUDIO release - synchronous in event call stack
-    audioEngine.immediateRelease();
-
-    // Then update drawing state
-    handleInputEnd(x, y);
-  };
 
   const handlePointerCancel = (e: React.PointerEvent) => {
     const canvas = canvasRef.current;
@@ -909,6 +789,6 @@ const App: React.FC = () => {
       `}</style>
     </div>
   );
-};
+}
 
 export default App;
